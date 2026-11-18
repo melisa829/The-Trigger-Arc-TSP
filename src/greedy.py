@@ -5,32 +5,20 @@ from src.cost_evaluator import evaluate_route_cost
 
 def greedy_algorithm(graph: Graph) -> tuple[list[int], float]:
     """
-    Constructs a route using a greedy strategy.
+    Constructs a Hamiltonian cycle using a greedy strategy
+    combined with backtracking.
 
-    At each step, selects the cheapest outgoing arc
-    that leads to an unvisited node.
+    At each step, outgoing arcs are sorted by their current
+    costs. The cheapest arc is tried first.
 
-    The route starts and ends at the depot.
+    If a choice leads to a dead end, the algorithm backtracks
+    and tries the next candidate.
+
+    The route starts and ends at the depot and visits every
+    node exactly once.
     """
 
-    current_node = graph.depot
-
-    # Track visited nodes.
-    visited_nodes = {current_node}
-
-    # Store the selected arc IDs.
-    route = []
-
-    # Store pending trigger costs.
-    pending_costs = {}
-
-    # Create a dictionary for quick arc lookup.
-    arcs_by_id = {
-        arc.id: arc
-        for arc in graph.arcs
-    }
-
-    # Group relations by trigger arc.
+    # Group relations by their trigger arc.
     relations_by_trigger = {}
 
     for relation in graph.relations:
@@ -38,68 +26,110 @@ def greedy_algorithm(graph: Graph) -> tuple[list[int], float]:
             relation.trigger_arc_id, []
         ).append(relation)
 
-    # Visit every node.
-    while len(visited_nodes) < graph.num_nodes:
+    def search(
+        current_node: int,
+        visited_nodes: set[int],
+        route: list[int],
+        pending_costs: dict[int, float],
+        traversed_arcs: set[int]
+    ) -> list[int] | None:
 
-        candidates = [
-            arc
-            for arc in graph.arcs
-            if arc.tail == current_node
-            and arc.head not in visited_nodes
-        ]
+        # If every node has been visited, try to return
+        # to the depot.
+        if len(visited_nodes) == graph.num_nodes:
 
-        if not candidates:
-            raise ValueError(
-                f"No valid outgoing arc from node {current_node}."
+            return_candidates = [
+                arc for arc in graph.arcs
+                if arc.tail == current_node
+                and arc.head == graph.depot
+                and arc.id not in traversed_arcs
+            ]
+
+            return_candidates.sort(
+                key=lambda arc: pending_costs.get(
+                    arc.id, arc.cost
+                )
             )
 
-        # Select the cheapest candidate using its current cost.
-        selected_arc = min(
-            candidates,
+            if return_candidates:
+                return route + [return_candidates[0].id]
+
+            return None
+
+        # Find outgoing arcs leading to unvisited nodes.
+        candidates = [
+            arc for arc in graph.arcs
+            if arc.tail == current_node
+            and arc.head not in visited_nodes
+            and arc.id not in traversed_arcs
+        ]
+
+        # Try the cheapest candidate first.
+        candidates.sort(
             key=lambda arc: pending_costs.get(
                 arc.id, arc.cost
             )
         )
 
-        route.append(selected_arc.id)
+        for selected_arc in candidates:
 
-        visited_nodes.add(selected_arc.head)
+            # Create independent state for this attempt.
+            new_route = route + [selected_arc.id]
 
-        current_node = selected_arc.head
+            new_visited_nodes = visited_nodes | {
+                selected_arc.head
+            }
 
-        # Apply trigger effects to targets not yet traversed.
-        for relation in relations_by_trigger.get(
-            selected_arc.id, []
-        ):
-            target_id = relation.target_arc_id
+            new_traversed_arcs = traversed_arcs | {
+                selected_arc.id
+            }
 
-            if target_id not in route:
-                pending_costs[target_id] = relation.new_cost
+            new_pending_costs = pending_costs.copy()
 
-    # Find an arc that returns to the depot.
-    return_candidates = [
-        arc
-        for arc in graph.arcs
-        if arc.tail == current_node
-        and arc.head == graph.depot
-    ]
+            # Apply trigger effects to targets that have
+            # not yet been traversed.
+            for relation in relations_by_trigger.get(
+                selected_arc.id, []
+            ):
 
-    if not return_candidates:
-        raise ValueError(
-            f"No valid arc from node {current_node} "
-            "back to the depot."
-        )
+                target_id = relation.target_arc_id
 
-    return_arc = min(
-        return_candidates,
-        key=lambda arc: pending_costs.get(
-            arc.id, arc.cost
-        )
+                if target_id not in new_traversed_arcs:
+                    new_pending_costs[target_id] = (
+                        relation.new_cost
+                    )
+
+            # Recursively try to complete the route.
+            result = search(
+                current_node=selected_arc.head,
+                visited_nodes=new_visited_nodes,
+                route=new_route,
+                pending_costs=new_pending_costs,
+                traversed_arcs=new_traversed_arcs
+            )
+
+            # If a valid cycle was found, return it.
+            if result is not None:
+                return result
+
+        # No candidate produced a valid Hamiltonian cycle.
+        return None
+
+    # Start searching from the depot.
+    route = search(
+        current_node=graph.depot,
+        visited_nodes={graph.depot},
+        route=[],
+        pending_costs={},
+        traversed_arcs=set()
     )
 
-    route.append(return_arc.id)
+    if route is None:
+        raise ValueError(
+            "No valid Hamiltonian cycle exists for this graph."
+        )
 
-    # Calculate the exact total route cost.
+    # Calculate the exact total cost, including trigger effects.
     total_cost = evaluate_route_cost(graph, route)
 
     return route, total_cost
