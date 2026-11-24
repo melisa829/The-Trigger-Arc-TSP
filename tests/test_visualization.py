@@ -66,13 +66,68 @@ class TestVisualization(unittest.TestCase):
         )
 
         self.assertEqual(
-            visual_graph[0][1]["arc_id"],
+            visual_graph[0][1][0]["arc_id"],
             0
         )
 
         self.assertEqual(
-            visual_graph[0][1]["cost"],
+            visual_graph[0][1][0]["cost"],
             2
+        )
+
+    def test_parallel_arcs_are_preserved(self):
+        graph = Graph(
+            num_nodes=2,
+            arcs=[
+                Arc(0, 0, 1, 10),
+                Arc(1, 0, 1, 15),
+                Arc(2, 1, 0, 20),
+            ],
+            relations=[]
+        )
+
+        visual_graph, _ = create_graph_visualization(graph)
+
+        self.assertEqual(
+            visual_graph.number_of_edges(),
+            3
+        )
+
+        self.assertTrue(
+            visual_graph.is_multigraph()
+        )
+
+    def test_parallel_arcs_keep_separate_attributes(self):
+        graph = Graph(
+            num_nodes=2,
+            arcs=[
+                Arc(0, 0, 1, 10),
+                Arc(1, 0, 1, 15),
+                Arc(2, 1, 0, 20),
+            ],
+            relations=[]
+        )
+
+        visual_graph, _ = create_graph_visualization(graph)
+
+        self.assertEqual(
+            visual_graph[0][1][0]["arc_id"],
+            0
+        )
+
+        self.assertEqual(
+            visual_graph[0][1][1]["arc_id"],
+            1
+        )
+
+        self.assertEqual(
+            visual_graph[0][1][0]["cost"],
+            10
+        )
+
+        self.assertEqual(
+            visual_graph[0][1][1]["cost"],
+            15
         )
 
     def test_draw_graph_without_display(self):

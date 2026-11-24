@@ -2,20 +2,24 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 
+from collections import defaultdict
+
 from src.graph import Graph
 
 
 def create_graph_visualization(
     graph: Graph
-) -> tuple[nx.DiGraph, dict]:
+) -> tuple[nx.MultiDiGraph, dict]:
     """
-    Creates a directed graph from the Trigger Arc TSP instance.
+    Creates a directed multigraph from the Trigger Arc TSP instance.
+
+    A MultiDiGraph preserves parallel arcs with different IDs and costs.
 
     Returns:
-        The NetworkX graph and the node positions.
+        The NetworkX multigraph and the node positions.
     """
 
-    visual_graph = nx.DiGraph()
+    visual_graph = nx.MultiDiGraph()
 
     for node in range(graph.num_nodes):
         visual_graph.add_node(node)
@@ -24,6 +28,7 @@ def create_graph_visualization(
         visual_graph.add_edge(
             arc.tail,
             arc.head,
+            key=arc.id,
             arc_id=arc.id,
             cost=arc.cost
         )
@@ -36,23 +41,156 @@ def create_graph_visualization(
     return visual_graph, positions
 
 
-def draw_graph(
+def _calculate_edge_curvatures(graph: Graph) -> dict:
+    """
+    Calculates different curvature values for parallel arcs.
+
+    This prevents parallel arcs from being drawn on top of each other.
+    """
+
+    grouped_arcs = defaultdict(list)
+
+    for arc in graph.arcs:
+        grouped_arcs[(arc.tail, arc.head)].append(arc)
+
+    curvatures = {}
+
+    for arcs in grouped_arcs.values():
+        count = len(arcs)
+
+        for index, arc in enumerate(arcs):
+            if count == 1:
+                curvature = 0.12
+            else:
+                curvature = (
+                    index - (count - 1) / 2
+                ) * 0.3
+
+            curvatures[arc.id] = curvature
+
+    return curvatures
+
+
+def _draw_arcs(
     graph: Graph,
-    show: bool = True,
-    save_path: str | None = None
+    positions: dict,
+    color: str,
+    width: float = 1.5,
+    arrowsize: int = 20,
+    selected_arc_ids: set | None = None
 ) -> None:
     """
-    Draws the original directed graph.
+    Draws arcs individually, preserving parallel arcs.
 
-    The depot is highlighted separately.
-    Arc labels contain their IDs and original costs.
+    Each arc is identified by its unique ID.
     """
 
-    visual_graph, positions = create_graph_visualization(
-        graph
-    )
+    curvatures = _calculate_edge_curvatures(graph)
 
-    plt.figure(figsize=(10, 7))
+    for arc in graph.arcs:
+
+        if (
+            selected_arc_ids is not None
+            and arc.id not in selected_arc_ids
+        ):
+            continue
+
+        nx.draw_networkx_edges(
+            nx.MultiDiGraph([
+                (
+                    arc.tail,
+                    arc.head,
+                    {
+                        "arc_id": arc.id,
+                        "cost": arc.cost
+                    }
+                )
+            ]),
+            positions,
+            edgelist=[(arc.tail, arc.head, 0)],
+            edge_color=color,
+            width=width,
+            arrows=True,
+            arrowsize=arrowsize,
+            connectionstyle=(
+                f"arc3,rad={curvatures[arc.id]}"
+            )
+        )
+
+
+def _draw_arc_labels(
+    graph: Graph,
+    positions: dict
+) -> None:
+    """
+    Draws labels for every arc separately.
+
+    Labels contain the arc ID and its original cost.
+    """
+
+    grouped_arcs = defaultdict(list)
+
+    for arc in graph.arcs:
+        grouped_arcs[(arc.tail, arc.head)].append(arc)
+
+    for arcs in grouped_arcs.values():
+
+        count = len(arcs)
+
+        for index, arc in enumerate(arcs):
+
+            x1, y1 = positions[arc.tail]
+            x2, y2 = positions[arc.head]
+
+            dx = x2 - x1
+            dy = y2 - y1
+
+            if dx == 0 and dy == 0:
+                label_x = x1
+                label_y = y1
+            else:
+                offset = (
+                    index - (count - 1) / 2
+                ) * 0.08
+
+                if count == 1:
+                    offset = 0.04
+
+                label_x = (
+                    (x1 + x2) / 2
+                    - dy * offset
+                )
+
+                label_y = (
+                    (y1 + y2) / 2
+                    + dx * offset
+                )
+
+            plt.text(
+                label_x,
+                label_y,
+                f"A{arc.id}: {arc.cost}",
+                fontsize=8,
+                ha="center",
+                va="center",
+                bbox={
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "alpha": 0.75
+                }
+            )
+
+
+def _draw_nodes(
+    graph: Graph,
+    visual_graph: nx.MultiDiGraph,
+    positions: dict
+) -> None:
+    """
+    Draws graph nodes and their labels.
+
+    The depot is highlighted in orange.
+    """
 
     node_colors = [
         "orange" if node == graph.depot else "skyblue"
@@ -73,27 +211,43 @@ def draw_graph(
         font_weight="bold"
     )
 
-    nx.draw_networkx_edges(
-        visual_graph,
-        positions,
-        edge_color="gray",
-        arrows=True,
-        arrowsize=20,
-        connectionstyle="arc3,rad=0.1"
+
+def draw_graph(
+    graph: Graph,
+    show: bool = True,
+    save_path: str | None = None
+) -> None:
+    """
+    Draws the original directed multigraph.
+
+    The depot is highlighted separately.
+    Every arc has its own ID and original cost.
+    Parallel arcs are displayed separately.
+    """
+
+    visual_graph, positions = create_graph_visualization(
+        graph
     )
 
-    edge_labels = {
-        (arc.tail, arc.head): (
-            f"A{arc.id}: {arc.cost}"
-        )
-        for arc in graph.arcs
-    }
+    plt.figure(figsize=(10, 7))
 
-    nx.draw_networkx_edge_labels(
+    _draw_nodes(
+        graph,
         visual_graph,
+        positions
+    )
+
+    _draw_arcs(
+        graph,
         positions,
-        edge_labels=edge_labels,
-        font_size=8
+        color="gray",
+        width=1.5,
+        arrowsize=20
+    )
+
+    _draw_arc_labels(
+        graph,
+        positions
     )
 
     plt.title("Trigger Arc TSP - Original Graph")
@@ -123,8 +277,10 @@ def draw_route(
     """
     Draws a Hamiltonian cycle on the original graph.
 
-    Selected route arcs are highlighted.
+    Selected route arcs are highlighted in red.
     Other arcs remain visible in the background.
+
+    The route is validated before drawing.
     """
 
     arcs_by_id = {
@@ -182,65 +338,34 @@ def draw_route(
 
     plt.figure(figsize=(10, 7))
 
-    node_colors = [
-        "orange" if node == graph.depot else "skyblue"
-        for node in visual_graph.nodes()
-    ]
-
-    nx.draw_networkx_nodes(
+    _draw_nodes(
+        graph,
         visual_graph,
-        positions,
-        node_color=node_colors,
-        node_size=900
+        positions
     )
 
-    nx.draw_networkx_labels(
-        visual_graph,
+    # Draw all original arcs in the background.
+    _draw_arcs(
+        graph,
         positions,
-        font_size=11,
-        font_weight="bold"
+        color="lightgray",
+        width=1.5,
+        arrowsize=15
     )
 
-    nx.draw_networkx_edges(
-        visual_graph,
+    # Highlight the selected route arcs in red.
+    _draw_arcs(
+        graph,
         positions,
-        edge_color="lightgray",
-        arrows=True,
-        arrowsize=15,
-        connectionstyle="arc3,rad=0.1"
-    )
-
-    route_edges = [
-        (
-            arcs_by_id[arc_id].tail,
-            arcs_by_id[arc_id].head
-        )
-        for arc_id in route
-    ]
-
-    nx.draw_networkx_edges(
-        visual_graph,
-        positions,
-        edgelist=route_edges,
-        edge_color="red",
+        color="red",
         width=2.8,
-        arrows=True,
         arrowsize=25,
-        connectionstyle="arc3,rad=0.1"
+        selected_arc_ids=set(route)
     )
 
-    edge_labels = {
-        (arc.tail, arc.head): (
-            f"A{arc.id}: {arc.cost}"
-        )
-        for arc in graph.arcs
-    }
-
-    nx.draw_networkx_edge_labels(
-        visual_graph,
-        positions,
-        edge_labels=edge_labels,
-        font_size=8
+    _draw_arc_labels(
+        graph,
+        positions
     )
 
     plt.title(title)

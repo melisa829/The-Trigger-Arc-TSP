@@ -148,15 +148,28 @@ def compare_algorithms(graph):
             f"{result['time']:<20.6f}"
         )
 
-    best_result = min(
-        results,
-        key=lambda result: result["cost"]
+    # Find the minimum cost achieved by the algorithms.
+    best_cost = min(
+        result["cost"]
+        for result in results
     )
 
+    # Keep every algorithm that achieved this cost.
+    best_results = [
+        result
+        for result in results
+        if result["cost"] == best_cost
+    ]
+
     print("-" * 65)
-    print(f"Best solution: {best_result['name']}")
-    print(f"Best cost: {best_result['cost']:.2f}")
-    print(f"Best route: {best_result['route']}")
+    print(f"Best cost: {best_cost:.2f}")
+    print("Algorithm(s) achieving the best cost:")
+
+    for result in best_results:
+        print(f"\nAlgorithm: {result['name']}")
+        print(f"Route: {result['route']}")
+        print(f"Execution time: {result['time']:.6f} seconds")
+
     print("=" * 65)
 
     return results
